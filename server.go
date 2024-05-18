@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -15,6 +17,9 @@ func NewServer(
 	config *Config,
 ) http.Handler {
 	mux := http.NewServeMux()
+
+	pythonRuntime := NewPythonRuntime(logger)
+	requestIdx := atomic.Uint64{}
 
 	mux.Handle("/v1/execute", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req, problems, err := decodeValid[ExecuteRequest](r)
@@ -26,28 +31,69 @@ func NewServer(
 		// Execute programs in parallel, up to the maximum number of concurrent
 		// programs.
 		wg := sync.WaitGroup{}
-		results := make([]ExecutionResult, len(req.Programs))
+		results := make([]ProgramResult, len(req.Programs))
 		for i := range req.Programs {
 			copiedIndex := i
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				program := req.Programs[copiedIndex]
-				runningProgram, err := program.Run(r.Context())
-				if err != nil {
-					results[copiedIndex] = ExecutionResult{
+
+				if program.Runtime != "python3" {
+					results[copiedIndex] = ProgramResult{
 						Success: false,
+						Error:   newString("unsupported runtime"),
 					}
-					logger.Error("program failed to run", zap.Error(err))
 					return
 				}
 
-				// Wait for the program to finish.
-				runningProgram.Wait()
-				results[copiedIndex] = ExecutionResult{
-					Success: runningProgram.Status() == ProgramStatusDone,
+				if program.TimeoutSecs <= 0 || program.TimeoutSecs > config.MaxTimeoutSecs {
+					program.TimeoutSecs = config.MaxTimeoutSecs
 				}
-				logger.Info("program finished", zap.String("status", string(runningProgram.Status())), zap.Int("index", copiedIndex))
+
+				ctx, cancel := context.WithTimeout(r.Context(), time.Duration(program.TimeoutSecs)*time.Second)
+				defer cancel()
+
+				idx := requestIdx.Add(1)
+
+				logger := logger.With(
+					zap.Uint64("trace_id", idx),
+					zap.Int("index", copiedIndex),
+					zap.String("runtime", program.Runtime),
+				)
+
+				compilerExitCode, programExitCode, err := pythonRuntime.CompileAndRun(ctx, logger, program.Code)
+
+				success := programExitCode == 0 && compilerExitCode == 0 && err == nil
+
+				var compiledPtr *bool
+				if compilerExitCode == 0 {
+					compiledPtr = newBool(true)
+				} else if compilerExitCode != -1 {
+					compiledPtr = newBool(true)
+				}
+
+				timeoutPtr := newBool(err == context.DeadlineExceeded)
+
+				var exitCodePtr *int
+				if programExitCode == 0 {
+					exitCodePtr = newInt(0)
+				} else if programExitCode != -1 {
+					exitCodePtr = newInt(programExitCode)
+				}
+
+				var errString *string
+				if err != nil {
+					errString = newString(err.Error())
+				}
+
+				results[copiedIndex] = ProgramResult{
+					Success:  success,
+					Compiled: compiledPtr,
+					Timeout:  timeoutPtr,
+					ExitCode: exitCodePtr,
+					Error:    errString,
+				}
 			}()
 		}
 
@@ -67,6 +113,18 @@ func NewServer(
 	return mux
 }
 
+func newBool(b bool) *bool {
+	return &b
+}
+
+func newInt(i int) *int {
+	return &i
+}
+
+func newString(s string) *string {
+	return &s
+}
+
 // ErrorResponse is an error returned by the server.
 type ErrorResponse struct {
 	Error    string            `json:"error"`
@@ -75,16 +133,36 @@ type ErrorResponse struct {
 
 // ExecuteRequest is a request to execute a batch of code.
 type ExecuteRequest struct {
-	Programs []Program `json:"programs"`
+	Programs []ProgramProto `json:"programs"`
 }
 
-type ExecutionResult struct {
-	Success bool `json:"Success"`
+type ProgramProto struct {
+	// Runtime is the name of the runtime to use.
+	Runtime string `json:"runtime"`
+	// Code is the source code to execute.
+	Code string `json:"code"`
+	// TimeoutSecs is the maximum number of seconds the program is allowed to
+	// run.
+	TimeoutSecs float64 `json:"timeoutSecs"`
+}
+
+type ProgramResult struct {
+	// Success is true if the program ran successfully and exited with a zero
+	// status code.
+	Success bool `json:"success"`
+	// Compiled is true if the program was compiled successfully.
+	Compiled *bool `json:"compiled"`
+	// Timeout is true if the program timed out.
+	Timeout *bool `json:"timeout"`
+	// ExitCode is the exit code of the program.
+	ExitCode *int `json:"exitCode"`
+	// Error is the error message if the program failed to run.
+	Error *string `json:"error"`
 }
 
 // ExecuteResponse is a response to executing a batch of code.
 type ExecuteResponse struct {
-	Results []ExecutionResult `json:"results"`
+	Results []ProgramResult `json:"results"`
 }
 
 func (r ExecuteRequest) Valid(ctx context.Context) (problems map[string]string) {

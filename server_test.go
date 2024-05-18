@@ -13,6 +13,19 @@ import (
 	"golang.org/x/net/context"
 )
 
+func humanEvalExampleProblem() ProgramProto {
+	prompt := "from typing import List\n\n\ndef has_close_elements(numbers: List[float], threshold: float) -> bool:\n    \"\"\" Check if in given list of numbers, are any two numbers closer to each other than\n    given threshold.\n    >>> has_close_elements([1.0, 2.0, 3.0], 0.5)\n    False\n    >>> has_close_elements([1.0, 2.8, 3.0, 4.0, 5.0, 2.0], 0.3)\n    True\n    \"\"\"\n"
+	canonicalSolution := "    for idx, elem in enumerate(numbers):\n        for idx2, elem2 in enumerate(numbers):\n            if idx != idx2:\n                distance = abs(elem - elem2)\n                if distance < threshold:\n                    return True\n\n    return False\n"
+	test := "\n\nMETADATA = {\n    'author': 'jt',\n    'dataset': 'test'\n}\n\n\ndef check(candidate):\n    assert candidate([1.0, 2.0, 3.9, 4.0, 5.0, 2.2], 0.3) == True\n    assert candidate([1.0, 2.0, 3.9, 4.0, 5.0, 2.2], 0.05) == False\n    assert candidate([1.0, 2.0, 5.9, 4.0, 5.0], 0.95) == True\n    assert candidate([1.0, 2.0, 5.9, 4.0, 5.0], 0.8) == False\n    assert candidate([1.0, 2.0, 3.0, 4.0, 5.0, 2.0], 0.1) == True\n    assert candidate([1.1, 2.2, 3.1, 4.1, 5.1], 1.0) == True\n    assert candidate([1.1, 2.2, 3.1, 4.1, 5.1], 0.5) == False\n\n"
+	main := "if __name__ == '__main__':\n    check(has_close_elements)\n"
+	code := fmt.Sprintf("%s%s%s%s", prompt, canonicalSolution, test, main)
+	return ProgramProto{
+		Runtime:     "python3",
+		Code:        code,
+		TimeoutSecs: 10,
+	}
+}
+
 func TestExecuteV1(t *testing.T) {
 	is := require.New(t)
 	ctx := context.Background()
@@ -23,15 +36,14 @@ func TestExecuteV1(t *testing.T) {
 	is.NoError(waitForReady(t, ctx, 3*time.Second, "http://localhost:8080/"))
 
 	body := &ExecuteRequest{
-		Programs: []Program{},
+		Programs: []ProgramProto{},
 	}
-	for i := 0; i < 16; i++ {
-		body.Programs = append(body.Programs, Program{
-			Runtime:     RuntimePython310,
-			Code:        fmt.Sprintf("print('hello world %d')", i),
-			TimeoutSecs: 1,
-		})
-	}
+	body.Programs = append(body.Programs, ProgramProto{
+		Runtime:     "python3",
+		Code:        "print('hello world')",
+		TimeoutSecs: 1,
+	})
+	body.Programs = append(body.Programs, humanEvalExampleProblem())
 	bodyEnc := &bytes.Buffer{}
 
 	is.NoError(json.NewEncoder(bodyEnc).Encode(body))
