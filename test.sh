@@ -1,0 +1,2 @@
+#!/bin/bash
+curl -X POST "$1/v1/execute" -H "Content-Type: application/json" -d '{"programs":[{"runtime":"python3","code":"def fib(n):\n    if n <= 1:\n        return n\n    return fib(n-1) + fib(n-2)\n\nresult = fib(10)\nprint(f\"fib(10) = {result}\")","timeoutSecs":10}]}'

@@ -37,15 +37,16 @@ func TestPythonRuntime(t *testing.T) {
 		timeout := timeouts[i]
 		shouldSucceed := expected[i]
 
-		ctx, cancel := context.WithTimeout(ctx, time.Second*time.Duration(timeout))
+		testCtx, cancel := context.WithTimeout(ctx, time.Second*time.Duration(timeout))
 		defer cancel()
 
-		exitCode, _, err := runtime.CompileAndRun(ctx, logger, code)
+		compilerExitCode, programExitCode, _, _, err := runtime.CompileAndRun(testCtx, logger, code)
 		if shouldSucceed {
 			is.NoError(err)
-			is.Equal(0, exitCode)
+			is.Equal(0, compilerExitCode)
+			is.Equal(0, programExitCode)
 		} else {
-			is.True(err != nil || exitCode != 0)
+			is.True(err != nil || compilerExitCode != 0 || programExitCode != 0)
 		}
 	}
 }

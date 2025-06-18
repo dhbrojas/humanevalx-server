@@ -32,10 +32,13 @@ func NewServer(
 		// programs.
 		wg := sync.WaitGroup{}
 		results := make([]ProgramResult, len(req.Programs))
+		concurrencyLimit := make(chan struct{}, config.MaxConcurrentEvaluations)
 		for i := range req.Programs {
 			copiedIndex := i
 			wg.Add(1)
 			go func() {
+				concurrencyLimit <- struct{}{}
+				defer func() { <-concurrencyLimit }()
 				defer wg.Done()
 				program := req.Programs[copiedIndex]
 
@@ -62,7 +65,7 @@ func NewServer(
 					zap.String("runtime", program.Runtime),
 				)
 
-				compilerExitCode, programExitCode, err := pythonRuntime.CompileAndRun(ctx, logger, program.Code)
+				compilerExitCode, programExitCode, stdout, stderr, err := pythonRuntime.CompileAndRun(ctx, logger, program.Code)
 
 				success := programExitCode == 0 && compilerExitCode == 0 && err == nil
 
@@ -70,7 +73,7 @@ func NewServer(
 				if compilerExitCode == 0 {
 					compiledPtr = newBool(true)
 				} else if compilerExitCode != -1 {
-					compiledPtr = newBool(true)
+					compiledPtr = newBool(false)
 				}
 
 				timeoutPtr := newBool(err == context.DeadlineExceeded)
@@ -87,12 +90,24 @@ func NewServer(
 					errString = newString(err.Error())
 				}
 
+				var stdoutPtr *string
+				if stdout != "" {
+					stdoutPtr = newString(stdout)
+				}
+
+				var stderrPtr *string
+				if stderr != "" {
+					stderrPtr = newString(stderr)
+				}
+
 				results[copiedIndex] = ProgramResult{
 					Success:  success,
 					Compiled: compiledPtr,
 					Timeout:  timeoutPtr,
 					ExitCode: exitCodePtr,
 					Error:    errString,
+					Stdout:   stdoutPtr,
+					Stderr:   stderrPtr,
 				}
 			}()
 		}
@@ -158,6 +173,10 @@ type ProgramResult struct {
 	ExitCode *int `json:"exitCode"`
 	// Error is the error message if the program failed to run.
 	Error *string `json:"error"`
+	// Stdout is the standard output from the program.
+	Stdout *string `json:"stdout"`
+	// Stderr is the standard error output from the program.
+	Stderr *string `json:"stderr"`
 }
 
 // ExecuteResponse is a response to executing a batch of code.
@@ -198,7 +217,7 @@ func decodeValid[T Validator](r *http.Request) (T, map[string]string, error) {
 func writeError(w http.ResponseWriter, err error, problems map[string]string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusInternalServerError)
-	encode(w, http.StatusInternalServerError, ErrorResponse{
+	json.NewEncoder(w).Encode(ErrorResponse{
 		Error:    err.Error(),
 		Problems: problems,
 	})

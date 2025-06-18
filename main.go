@@ -85,14 +85,10 @@ type Config struct {
 
 func parseConfig(args []string) (*Config, error) {
 	fs := flag.NewFlagSet(args[0], flag.ExitOnError)
-	config := &Config{
-		Host:                     "localhost",
-		Port:                     "8080",
-		MaxConcurrentEvaluations: 16,
-	}
-	fs.StringVar(&config.Host, "host", "localhost", "host to listen on")
+	config := &Config{}
+	fs.StringVar(&config.Host, "host", "0.0.0.0", "host to listen on")
 	fs.StringVar(&config.Port, "port", "8080", "port to listen on")
-	fs.IntVar(&config.MaxConcurrentEvaluations, "max-concurrent-evaluations", 10, "maximum number of concurrent evaluations")
+	fs.IntVar(&config.MaxConcurrentEvaluations, "max-concurrent-evaluations", 16, "maximum number of concurrent evaluations")
 	fs.Float64Var(&config.MaxTimeoutSecs, "max-timeout-secs", 60, "maximum timeout in seconds")
 	must(fs.Parse(args[1:]))
 	return config, nil
