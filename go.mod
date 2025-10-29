@@ -2,6 +2,8 @@ module humanevalx-server
 
 go 1.21.1
 
+require golang.org/x/sys v0.20.0
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
