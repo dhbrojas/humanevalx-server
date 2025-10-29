@@ -15,14 +15,16 @@ type Runtime interface {
 }
 
 type PythonRuntime struct {
-	logger *zap.Logger
+	logger         *zap.Logger
+	maxMemoryBytes uint64
 }
 
 var _ Runtime = &PythonRuntime{}
 
-func NewPythonRuntime(logger *zap.Logger) *PythonRuntime {
+func NewPythonRuntime(logger *zap.Logger, maxMemoryBytes uint64) *PythonRuntime {
 	return &PythonRuntime{
-		logger: logger,
+		logger:         logger,
+		maxMemoryBytes: maxMemoryBytes,
 	}
 }
 
@@ -36,6 +38,13 @@ func (r *PythonRuntime) CompileAndRun(ctx context.Context, logger *zap.Logger, c
 
 	if err := cmd.Start(); err != nil {
 		return -1, -1, "", "", err
+	}
+
+	// Set memory limit immediately after starting (platform-specific implementation)
+	if r.maxMemoryBytes > 0 {
+		if err := setMemoryLimitOnPid(cmd.Process.Pid, r.maxMemoryBytes); err != nil {
+			logger.Warn("failed to set memory limit", zap.Error(err))
+		}
 	}
 
 	logger.Info("running program")

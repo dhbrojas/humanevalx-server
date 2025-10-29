@@ -18,7 +18,7 @@ func NewServer(
 ) http.Handler {
 	mux := http.NewServeMux()
 
-	pythonRuntime := NewPythonRuntime(logger)
+	pythonRuntime := NewPythonRuntime(logger, config.MaxMemoryBytes)
 	requestIdx := atomic.Uint64{}
 
 	mux.Handle("/v1/execute", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +191,9 @@ func (r ExecuteRequest) Valid(ctx context.Context) (problems map[string]string) 
 func encode[T any](w http.ResponseWriter, status int, v T) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		return fmt.Errorf("encode json: %w", err)
 	}
 	return nil

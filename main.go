@@ -81,6 +81,7 @@ type Config struct {
 	Port                     string
 	MaxConcurrentEvaluations int
 	MaxTimeoutSecs           float64
+	MaxMemoryBytes           uint64
 }
 
 func parseConfig(args []string) (*Config, error) {
@@ -88,8 +89,9 @@ func parseConfig(args []string) (*Config, error) {
 	config := &Config{}
 	fs.StringVar(&config.Host, "host", "0.0.0.0", "host to listen on")
 	fs.StringVar(&config.Port, "port", "8080", "port to listen on")
-	fs.IntVar(&config.MaxConcurrentEvaluations, "max-concurrent-evaluations", 16, "maximum number of concurrent evaluations")
+	fs.IntVar(&config.MaxConcurrentEvaluations, "max-concurrent-evaluations", 64, "maximum number of concurrent evaluations")
 	fs.Float64Var(&config.MaxTimeoutSecs, "max-timeout-secs", 60, "maximum timeout in seconds")
+	fs.Uint64Var(&config.MaxMemoryBytes, "max-memory-bytes", 64*1024*1024, "maximum memory per program in bytes (default 64MB)")
 	must(fs.Parse(args[1:]))
 	return config, nil
 }
